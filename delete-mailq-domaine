@@ -1,0 +1,53 @@
+#!/usr/bin/perl
+
+use strict;
+
+# Exit immediately if domain was not specified as command-line argument
+if (!(defined($ARGV[0]))) {
+   (my $basename = $0) =~ s!^.*/!!;
+   print "Usage: $basename domain\n";
+   exit 1;
+}
+
+# Convert domain supplied as command-line argument to lowercase
+my $domain_to_remove = lc($ARGV[0]);
+
+my $qtool = "/usr/local/bin/qtool.pl";
+my $mqueue_directory = "/var/spool/mqueue";
+my $messages_removed = 0;
+
+use File::Find;
+# Recursively find all files and directories in $mqueue_directory
+find(\&wanted, $mqueue_directory);
+
+sub wanted {
+   # Is this a qf* file?
+   if ( /^qf\w{14}/ ) {
+      my $QF_FILE = $_;
+      my $envelope_recipients = 0;
+      my $match = 1;
+      open (QF_FILE, $_);
+      while(<QF_FILE>) {
+         # If any of the envelope recipients contain a domain other than
+         # $domain_to_remove, do not match the message
+         if ( /^R.*:<.*\@(.*)>$/ ) {
+            my $recipient_domain = lc($1);
+            $envelope_recipients++;
+            if ($recipient_domain ne $domain_to_remove) {
+               $match = 0;
+               last;
+            }
+         }
+      }
+      close (QF_FILE);
+      # $QF_FILE may not contain an envelope recipient at the time it is opened
+      # and read. Do not match $QF_FILE in that case.
+      if ($match == 1 && $envelope_recipients != 0) {
+         print "Removing $QF_FILE...\n";
+         system "$qtool", "-d", $QF_FILE;
+         $messages_removed++;
+      }
+   }
+}
+
+print "$messages_removed total message(s) removed from mail queue.\n";
